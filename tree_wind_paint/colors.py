@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Colour attribute access shared by the operators.
 
@@ -134,9 +134,16 @@ def write_corners(me, attr, rgba, mask=None):
 
 
 def paint_mask(me, nl):
-    """Corners Vertex Paint selection masking lets through (all without masking)."""
+    """Corners a Vertex Paint tool may change: never hidden ones, and only the
+    selection with selection masking on."""
     lv = loop_verts(me)
-    mask = np.ones(nl, bool)
+    total = np.empty(len(me.polygons), np.int32)
+    me.polygons.foreach_get("loop_total", total)
+    fhide = np.zeros(len(me.polygons), bool)
+    me.polygons.foreach_get("hide", fhide)
+    vhide = np.zeros(len(me.vertices), bool)
+    me.vertices.foreach_get("hide", vhide)
+    mask = ~np.repeat(fhide, total) & ~vhide[lv]
     if me.use_paint_mask_vertex:
         vsel = np.zeros(len(me.vertices), bool)
         me.vertices.foreach_get("select", vsel)
@@ -144,8 +151,6 @@ def paint_mask(me, nl):
     if me.use_paint_mask:
         fsel = np.zeros(len(me.polygons), bool)
         me.polygons.foreach_get("select", fsel)
-        total = np.empty(len(me.polygons), np.int32)
-        me.polygons.foreach_get("loop_total", total)
         mask &= np.repeat(fsel, total)
     return lv, mask
 
@@ -241,10 +246,14 @@ def preview(context):
     attr = wind_attribute(me)
     if attr is None:
         return
+    # the helper is about to be active: remember which layer the wind colours are in
+    name = attr.name
+    if me.get(WIND_ATTR_KEY) != name:
+        me[WIND_ATTR_KEY] = name
     view = viewed_channels(context.scene.tree_wind)
     if not view or set(view) == {'R', 'G', 'B'}:
         drop_helper(me, PREVIEW_ATTR)
-        set_active(me, attr.name)
+        set_active(me, name)
         show_colors(context)
         return
     src = read_corners(me, attr)

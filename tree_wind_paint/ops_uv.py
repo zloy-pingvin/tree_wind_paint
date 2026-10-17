@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Painting through UVs.
 
@@ -19,9 +19,10 @@ import numpy as np
 from bpy.props import EnumProperty, FloatProperty, FloatVectorProperty
 
 from . import analysis
-from .colors import (CHANNEL_INDEX, ICON, TEMP_ATTR, ObjectMode, blend_values, isolated, preview,
-                     read_corners, write_channels, write_corners, wind_attribute)
-from .ops_gradient import _circle, draw_guides, window_region
+from .colors import (CHANNEL_INDEX, ICON, TEMP_ATTR, ObjectMode, blend_values, isolated,
+                     paint_mask, preview, read_corners, write_channels, write_corners,
+                     wind_attribute)
+from .ops_gradient import _circle, add_handler, draw_guides, remove_handler, window_region
 from .ops_autopaint import slot_roles
 from .props import GRADIENT_SCOPE_ITEMS, brush_grey
 from .translations import iface_
@@ -105,31 +106,37 @@ class TREEWIND_OT_uv_copy(bpy.types.Operator):
 
 
 def _faces_under(uv, md, faces, point):
-    """Faces (of the given ones) whose UV polygon contains point."""
+    """Faces (of the given ones) whose UV polygon contains point.
+
+    Even-odd rule over the polygon's edges, so concave faces work too (a fan
+    of triangles from one corner covers space outside a concave outline).
+    """
     loops = np.where(np.isin(md.loop_poly, faces))[0]
-    first = md.poly_start[md.loop_poly[loops]]
-    last = first + md.poly_total[md.loop_poly[loops]] - 1
-    tri = loops[(loops > first) & (loops < last)]   # fan triangles (first, i, i+1)
-    a = uv[md.poly_start[md.loop_poly[tri]]]
-    b = uv[tri]
-    c = uv[tri + 1]
-    v0, v1, v2 = c - a, b - a, np.asarray(point) - a
-    d00 = (v0 * v0).sum(1)
-    d01 = (v0 * v1).sum(1)
-    d11 = (v1 * v1).sum(1)
-    d20 = (v2 * v0).sum(1)
-    d21 = (v2 * v1).sum(1)
-    den = d00 * d11 - d01 * d01
-    ok = np.abs(den) > 1e-20
-    u = np.where(ok, (d11 * d20 - d01 * d21) / np.where(ok, den, 1), -1)
-    v = np.where(ok, (d00 * d21 - d01 * d20) / np.where(ok, den, 1), -1)
-    inside = ok & (u >= 0) & (v >= 0) & (u + v <= 1)
-    return np.unique(md.loop_poly[tri[inside]])
+    a = uv[loops]
+    b = uv[md.loop_next[loops]]
+    px, py = float(point[0]), float(point[1])
+    # edges that straddle the horizontal line through the point...
+    straddle = (a[:, 1] > py) != (b[:, 1] > py)
+    dy = np.where(straddle, b[:, 1] - a[:, 1], 1.0)
+    # ...and cross it to the right of the point
+    x = a[:, 0] + (py - a[:, 1]) * (b[:, 0] - a[:, 0]) / dy
+    crossing = straddle & (x > px)
+    count = np.bincount(md.loop_poly[loops][crossing], minlength=md.npoly)
+    hit = np.zeros(md.npoly, bool)
+    hit[faces] = (count[faces] % 2) == 1
+    return np.where(hit)[0]
 
 
 # The UV gradient that is waiting for or doing a drag: the panel shows its
 # button pressed. A new start makes the running one stop (by token).
 UV_RUNNING = {"mode": None, "token": 0}
+
+
+def stop_all():
+    """Forget the running UV gradient (on unregister; its drawing goes with
+    ops_gradient.stop_all)."""
+    UV_RUNNING["mode"] = None
+    UV_RUNNING["token"] += 1
 
 
 def apply_uv_gradient(context, ob, start, end, mode, channel, power, v_from, v_to, blend, scope):
@@ -176,6 +183,9 @@ def apply_uv_gradient(context, ob, start, end, mode, channel, power, v_from, v_t
         else:
             chosen = shown
         mask = chosen[md.loop_poly]
+        if ob_mode == 'VERTEX_PAINT':
+            # as a brush there: selection masking and hidden faces
+            mask &= paint_mask(me, md.nl)[1]
         s = np.asarray(start, np.float64)
         e = np.asarray(end, np.float64)
         dvec = e - s
@@ -247,8 +257,7 @@ class TREEWIND_OT_uv_gradient(bpy.types.Operator):
         UV_RUNNING["token"] += 1
         UV_RUNNING["mode"] = self.mode
         self._token = UV_RUNNING["token"]
-        self._handle = bpy.types.SpaceImageEditor.draw_handler_add(
-            self._draw, (), 'WINDOW', 'POST_PIXEL')
+        add_handler(bpy.types.SpaceImageEditor, self._token, self._draw)
         context.window_manager.modal_handler_add(self)
         self._status(context)
         area.tag_redraw()
@@ -271,7 +280,8 @@ class TREEWIND_OT_uv_gradient(bpy.types.Operator):
                 iso[1] if iso else self.channel, self.value_from, self.value_to))
 
     def _draw(self):
-        if self._a is None:
+        # the handler runs for every image editor: draw only in the one dragged in
+        if self._a is None or bpy.context.area != self._area:
             return
         c0 = (self.value_from,) * 3 + (1.0,)
         c1 = (self.value_to,) * 3 + (1.0,)
@@ -284,7 +294,7 @@ class TREEWIND_OT_uv_gradient(bpy.types.Operator):
         draw_guides(segs, strips)
 
     def _cleanup(self, context):
-        bpy.types.SpaceImageEditor.draw_handler_remove(self._handle, 'WINDOW')
+        remove_handler(bpy.types.SpaceImageEditor, self._token)
         if UV_RUNNING["token"] == self._token:
             UV_RUNNING["mode"] = None
             context.workspace.status_text_set(None)

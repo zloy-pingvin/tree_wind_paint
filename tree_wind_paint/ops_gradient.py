@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Gradient tools for painting a channel by hand (see ops_channel).
 
@@ -39,6 +39,37 @@ WHEEL_STEP = 1.15
 # The gradient tool that is waiting for or doing a drag: the panel shows its
 # button pressed. A new start makes the running one stop (by token).
 RUNNING = {"mode": None, "token": 0}
+
+# Draw handlers of the running tools (this one and the UV gradient), so that
+# turning the add-on off can remove them: Blender drops the modal operators of
+# an unregistered class, but not their draw callbacks.
+HANDLERS = {}
+
+
+def add_handler(space, token, draw):
+    handle = space.draw_handler_add(draw, (), 'WINDOW', 'POST_PIXEL')
+    HANDLERS[(space.__name__, token)] = (space, handle)
+
+
+def remove_handler(space, token):
+    entry = HANDLERS.pop((space.__name__, token), None)
+    if entry is not None:
+        entry[0].draw_handler_remove(entry[1], 'WINDOW')
+
+
+def stop_all():
+    """Remove the drawing of every running tool (on unregister)."""
+    for space, handle in list(HANDLERS.values()):
+        try:
+            space.draw_handler_remove(handle, 'WINDOW')
+        except ValueError:
+            pass
+    HANDLERS.clear()
+    RUNNING["mode"] = None
+    RUNNING["token"] += 1
+    workspace = getattr(bpy.context, "workspace", None)
+    if workspace is not None:
+        workspace.status_text_set(None)
 
 
 def window_region(area):
@@ -109,22 +140,11 @@ class TREEWIND_OT_gradient(bpy.types.Operator):
             self.report({'ERROR'}, iface_("Run it from the 3D viewport"))
             return {'CANCELLED'}
         ob = context.active_object
-        me = ob.data
-        nv = len(me.vertices)
-        co = np.empty(nv * 3, np.float32)
-        me.vertices.foreach_get("co", co)
-        co = co.reshape(nv, 3).astype(np.float64)
-        mw = np.array(ob.matrix_world)
-        self._co = co @ mw[:3, :3].T + mw[:3, 3]
-        me.calc_loop_triangles()
-        tris = np.empty(len(me.loop_triangles) * 3, np.int32)
-        me.loop_triangles.foreach_get("vertices", tris)
-        self._bvh = BVHTree.FromPolygons(self._co.tolist(), tris.reshape(-1, 3).tolist(),
-                                         all_triangles=True)
-        # the drag paints this mesh as it is now; anything else when it ends cancels it
+        self._local = None
+        self._refresh(ob)
+        # the drag paints this object in this mode; anything else cancels it
         self._ob_ptr = ob.as_pointer()
         self._ob_mode = ob.mode
-        self._center = Vector(self._co.mean(axis=0))
         self._area = area
         self._region = region
         self._rv3d = region.data
@@ -133,11 +153,33 @@ class TREEWIND_OT_gradient(bpy.types.Operator):
         RUNNING["token"] += 1
         RUNNING["mode"] = self.mode
         self._token = RUNNING["token"]
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(self._draw, (), 'WINDOW', 'POST_PIXEL')
+        add_handler(bpy.types.SpaceView3D, self._token, self._draw)
         context.window_manager.modal_handler_add(self)
         self._status(context)
         area.tag_redraw()
         return {'RUNNING_MODAL'}
+
+    def _refresh(self, ob):
+        """World positions and the BVH for ray hits, rebuilt when the mesh or
+        the object's transform changed since they were made (while the tool
+        waits, Blender works as usual: the tree may be moved or edited)."""
+        me = ob.data
+        nv = len(me.vertices)
+        local = np.empty(nv * 3, np.float32)
+        me.vertices.foreach_get("co", local)
+        mw = np.array(ob.matrix_world)
+        if self._local is not None and np.array_equal(local, self._local) \
+                and np.array_equal(mw, self._matrix):
+            return
+        self._local, self._matrix = local, mw
+        co = local.reshape(nv, 3).astype(np.float64)
+        self._co = co @ mw[:3, :3].T + mw[:3, 3]
+        me.calc_loop_triangles()
+        tris = np.empty(len(me.loop_triangles) * 3, np.int32)
+        me.loop_triangles.foreach_get("vertices", tris)
+        self._bvh = BVHTree.FromPolygons(self._co.tolist(), tris.reshape(-1, 3).tolist(),
+                                         all_triangles=True)
+        self._center = Vector(self._co.mean(axis=0))
 
     def _same_mesh(self, context):
         """Still the object, mode and channel copy the tool started on.
@@ -149,7 +191,6 @@ class TREEWIND_OT_gradient(bpy.types.Operator):
             return False
         ob = context.active_object
         return (ob.as_pointer() == self._ob_ptr and ob.mode == self._ob_mode
-                and len(ob.data.vertices) == len(self._co)
                 and TEMP_ATTR in ob.data.color_attributes)
 
     def _status(self, context):
@@ -160,7 +201,7 @@ class TREEWIND_OT_gradient(bpy.types.Operator):
         context.workspace.status_text_set(text)
 
     def _cleanup(self, context):
-        bpy.types.SpaceView3D.draw_handler_remove(self._handle, 'WINDOW')
+        remove_handler(bpy.types.SpaceView3D, self._token)
         if RUNNING["token"] == self._token:
             RUNNING["mode"] = None
             context.workspace.status_text_set(None)
@@ -208,7 +249,8 @@ class TREEWIND_OT_gradient(bpy.types.Operator):
     # --- drawing ----------------------------------------------------------------
 
     def _draw(self):
-        if self._a is None:
+        # the handler runs for every 3D view: draw only in the one dragged in
+        if self._a is None or bpy.context.area != self._area:
             return
         settings = bpy.context.scene.tree_wind
         v0 = brush_grey("color")
@@ -259,6 +301,7 @@ class TREEWIND_OT_gradient(bpy.types.Operator):
         if not dragging:
             # waiting: everything but a press in the viewport goes on to Blender (keys, panel...)
             if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and inside:
+                self._refresh(context.active_object)
                 self._a = self._b = (x, y)
                 origin, direction = self._ray(self._a)
                 loc, _n, _i, _d = self._bvh.ray_cast(origin, direction)

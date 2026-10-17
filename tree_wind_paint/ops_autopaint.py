@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Auto paint: wind colours computed from the tree's structure."""
 
 import time
@@ -116,11 +116,18 @@ class TREEWIND_OT_show_structure(bpy.types.Operator):
                       "into a separate attribute, to check how the tree was understood")
     bl_options = {'REGISTER', 'UNDO'}
 
-    poll = TREEWIND_OT_auto_paint.poll
+    @classmethod
+    def poll(cls, context):
+        ob = context.active_object
+        return ob is not None and ob.type == 'MESH' and isolated(ob.data) is None
 
     def execute(self, context):
         ob = context.active_object
         settings = context.scene.tree_wind
+        if isolated(ob.data):
+            # it would make its helper active and the brush would paint there
+            self.report({'ERROR'}, iface_("Apply or cancel the channel being painted first"))
+            return {'CANCELLED'}
         with ObjectMode(ob):
             me = ob.data
             md = analysis.MeshData(me)

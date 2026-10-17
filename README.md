@@ -88,7 +88,9 @@ blender --factory-startup --command extension validate dist/tree_wind_paint-<ver
 
 ## License
 
-GPL-2.0-or-later.
+Copyright (C) 2026 zloy_pingvin
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed WITHOUT ANY WARRANTY. See [LICENSE](LICENSE) for the full text.
 
 ## Author
 

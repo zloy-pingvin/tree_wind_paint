@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Tree Wind Paint: vertex colours for engine wind animation of trees.
 
@@ -43,6 +43,9 @@ def register():
 
 
 def unregister():
+    # running gradient tools: their drawing would outlive the add-on
+    ops_gradient.stop_all()
+    ops_uv.stop_all()
     for km, kmi in _keymaps:
         km.keymap_items.remove(kmi)
     _keymaps.clear()

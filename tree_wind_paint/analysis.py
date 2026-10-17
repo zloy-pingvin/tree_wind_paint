@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Tree structure analysis for wind vertex colours.
 
@@ -748,12 +748,20 @@ def _phases(tree, p):
     return np.array([value[unit[c]] for c in range(n)])
 
 
+def _card_keys(md, uv, loops):
+    """One int per corner, equal for corners at the same UV point of the same
+    material: cards of different materials may share UVs, they are not copies."""
+    pairs = np.stack([md.poly_mat[md.loop_poly[loops]], uv_keys(uv[loops])], axis=1)
+    _u, ids = np.unique(pairs, axis=0, return_inverse=True)
+    return ids.ravel().astype(np.int64)
+
+
 def _stems_by_uv(tree, md, face_role, uv, stems):
     """One stem point per leaf card type: the UV point most copies of the card
     have nearest to the bark. Copies that have it use it as their stem."""
     lv = md.loop_vert
     loops = np.where(face_role[md.loop_poly] == LEAF)[0]
-    keys = uv_keys(uv[loops])
+    keys = _card_keys(md, uv, loops)
     vkey = np.zeros(md.nv, np.int64)
     vkey[lv[loops]] = keys
     # card types: faces linked through the UV points they share
@@ -842,8 +850,7 @@ def compute_colors(tree, md, face_role, p, uv=None):
 
     if p.flutter_by_uv and uv is not None and is_leaf.any():
         idx = np.where(is_leaf)[0]
-        _u, inv = np.unique(uv_keys(uv[idx]), return_inverse=True)
-        inv = inv.ravel()
+        inv = _card_keys(md, uv, idx)
         mean = np.bincount(inv, weights=rgb[idx, 0]) / np.bincount(inv)
         rgb[idx, 0] = mean[inv]
     if len(leaves):

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Sidebar panels: 3D View > Tree Wind and UV Editor > Tree Wind."""
 
 import bpy

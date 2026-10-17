@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Russian translations of the add-on's labels, tooltips and reports.
 
@@ -287,7 +287,8 @@ ru_RU = {
         "Веток {:d} (сучьев {:d}, уровней {:d}), листьев {:d}; показано в атрибуте TWP_Branches",
     ("*", "No bark faces: set the bark material role"):
         "Нет граней коры: укажите роль материала коры",
-    ("*", "Attribute \"{:s}\" is gone"): "Атрибут «{:s}» пропал",
+    ("*", "Attribute \"{:s}\" is gone: give the wind colours that name again, or Cancel"):
+        "Атрибут «{:s}» пропал: верни цветам ветра это имя или нажми «Отмена»",
     ("*", "No wind colours yet: run Auto Paint"): "Цветов ветра ещё нет: запустите автопокраску",
     ("*", "Select the painted leaf: Edit Mode, or Vertex Paint with face selection masking"):
         "Выделите покрашенный лист: Edit Mode или Vertex Paint с маской выделения граней",

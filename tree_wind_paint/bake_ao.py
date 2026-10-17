@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Ambient occlusion for the alpha channel (the Crysis convention: A = AO).
 
@@ -9,6 +9,9 @@ render settings are put back afterwards. The result is multiplied by a
 gradient from the ground: darker at the foot of the tree, fading out at a
 share of its height.
 """
+
+import hashlib
+import os
 
 import bpy
 import numpy as np
@@ -67,33 +70,41 @@ def _bake(context, ob, distance, plain=False):
     view_layer = context.view_layer
     saved_override = view_layer.material_override
     override = bpy.data.materials.new("TWP_AO_Plain") if plain else None
-    attr = me.color_attributes.new(TMP, 'FLOAT_COLOR', 'CORNER')
+    # its real name: Blender adds .001 when the name is taken
+    tmp_name = me.color_attributes.new(TMP, 'FLOAT_COLOR', 'CORNER').name
     try:
         scene.render.engine = 'CYCLES'
         scene.cycles.samples = BAKE_SAMPLES
         world.light_settings.distance = distance
-        if override is not None:
-            view_layer.material_override = override
+        # plain: our opaque material; otherwise the tree's own, not one the
+        # user overrides the view layer with
+        view_layer.material_override = override
         for o in scene.objects:
             o.hide_render = o is not ob
         for o in saved["selected"]:
             o.select_set(False)
         ob.select_set(True)
         context.view_layer.objects.active = ob
-        set_active(me, TMP)
-        bpy.ops.object.bake(type='AO', target='VERTEX_COLORS', use_clear=True)
+        set_active(me, tmp_name)
+        # every bake setting that matters is given: the scene's own (Selected
+        # to Active, a cage...) are for the user's bakes, not this one
+        bpy.ops.object.bake(type='AO', target='VERTEX_COLORS', use_clear=True,
+                            use_selected_to_active=False, use_cage=False)
         # linear: AO is a fraction of open sky, not a colour to display
+        attr = me.color_attributes[tmp_name]
         buf = np.empty(len(attr.data) * 4, np.float32)
         attr.data.foreach_get("color", buf)
         ao = buf.reshape(-1, 4)[:, 0].copy()
     finally:
-        me.color_attributes.remove(me.color_attributes[TMP])
+        tmp = me.color_attributes.get(tmp_name)
+        if tmp is not None:
+            me.color_attributes.remove(tmp)
         if saved["color"] in me.color_attributes:
             set_active(me, saved["color"])
         world.light_settings.distance = saved_distance
         scene.cycles.samples = saved_samples
+        view_layer.material_override = saved_override
         if override is not None:
-            view_layer.material_override = saved_override
             bpy.data.materials.remove(override)
         scene.render.engine = saved["engine"]
         scene.world = saved["world"]
@@ -356,32 +367,119 @@ def _sample(ao, co, corners, point):
     return float(sum(wt * ao[x] for wt, x in zip(weights, corners)))
 
 
-def _materials_key(ob):
-    """Something that changes when the object's materials change: the bake
-    goes through them (transparent parts of leaf cards let AO rays pass)."""
+def _socket_value(sock):
+    value = getattr(sock, "default_value", None)
+    try:
+        return tuple(value)
+    except TypeError:
+        return value
+
+
+_UI_PROPS = {'location', 'width', 'height', 'select', 'hide', 'show_options', 'show_preview',
+             'show_texture', 'use_custom_color', 'color', 'show_expanded', 'show_in_editmode',
+             'show_on_cage', 'is_active', 'show_pin'}
+
+
+def _simple_props(struct, items):
+    """The plain settings of a data block or node (numbers, flags, choices)."""
+    for prop in struct.bl_rna.properties:
+        if prop.type in {'ENUM', 'BOOLEAN', 'INT', 'FLOAT', 'STRING'} and not prop.is_readonly \
+                and prop.identifier not in _UI_PROPS:
+            value = getattr(struct, prop.identifier, None)
+            try:
+                value = tuple(value)
+            except TypeError:
+                pass
+            items.append((prop.identifier, value))
+
+
+def _image_items(image, items):
+    """An image by what it holds: a painted texture keeps its name and path."""
+    # Not the size, nor whether it is loaded: the bake itself loads it.
+    items.append((image.name, image.filepath, image.source, image.alpha_mode,
+                  image.colorspace_settings.name))
+    if image.is_dirty or image.source == 'GENERATED':
+        # painted and not saved (or made in Blender): only the pixels tell
+        pixels = np.empty(len(image.pixels), np.float32)
+        image.pixels.foreach_get(pixels)
+        items.append(hashlib.blake2b(pixels.tobytes(), digest_size=16).hexdigest())
+    elif image.packed_file is not None:
+        items.append(image.packed_file.size)
+    else:
+        path = bpy.path.abspath(image.filepath, library=image.library)
+        try:
+            items.append(os.path.getmtime(path))
+        except OSError:
+            pass
+
+
+def _node_tree_items(tree, items, seen):
+    """Everything in a node tree that can change what it renders, node groups
+    included (once each)."""
+    if tree is None or tree.name in seen:
+        return
+    seen.add(tree.name)
+    for node in tree.nodes:
+        items.append((node.name, node.bl_idname, node.mute))
+        image = getattr(node, "image", None)
+        if image is not None:
+            _image_items(image, items)
+        # node settings that are not sockets (blend types, interpolation...)
+        _simple_props(node, items)
+        ramp = getattr(node, "color_ramp", None)
+        if ramp is not None:
+            items.append((ramp.interpolation, ramp.color_mode,
+                          [(e.position, tuple(e.color)) for e in ramp.elements]))
+        mapping = getattr(node, "mapping", None)
+        if mapping is not None and hasattr(mapping, "curves"):
+            items.append([[(tuple(p.location), p.handle_type) for p in c.points]
+                          for c in mapping.curves])
+        # RGB, Value and the like keep their value on the output
+        for sock in list(node.inputs) + list(node.outputs):
+            items.append((sock.identifier, _socket_value(sock)))
+        _node_tree_items(getattr(node, "node_tree", None), items, seen)
+    for link in tree.links:
+        items.append((link.from_node.name, link.from_socket.identifier,
+                      link.to_node.name, link.to_socket.identifier, link.is_muted))
+
+
+def _bake_key(context, ob, md, distance_share):
+    """Something that changes whenever the bake could come out different: the
+    geometry as rendered (modifiers, shape keys), the UVs (where a leaf card
+    is clear), the transform, the materials and the distance."""
+    me = ob.data
+    h = hashlib.blake2b(digest_size=16)
+    h.update(md.checksum().encode())
+    for layer in me.uv_layers:
+        h.update(layer.name.encode())
+        uv = np.empty(len(layer.data) * 2, np.float32)
+        layer.data.foreach_get("uv", uv)
+        h.update(uv.tobytes())
+    # the map textures read when a node names none
+    render_uv = next((layer.name for layer in me.uv_layers if layer.active_render), None)
+    h.update(repr(render_uv).encode())
     items = []
+    if len(ob.modifiers) or me.shape_keys is not None:
+        evaluated = ob.evaluated_get(context.evaluated_depsgraph_get()).data
+        co = np.empty(len(evaluated.vertices) * 3, np.float32)
+        evaluated.vertices.foreach_get("co", co)
+        h.update(co.tobytes())
+        h.update(np.int64(len(evaluated.polygons)).tobytes())
+        # the bake renders: the modifiers' render settings (show_render, render
+        # levels...) count, which the viewport geometry above does not show
+        for mod in ob.modifiers:
+            items.append((mod.name, mod.type))
+            _simple_props(mod, items)
+    h.update(np.round(np.array(ob.matrix_world)[:3, :3], 6).tobytes())
+    seen = set()
     for slot in ob.material_slots:
         mat = slot.material
         items.append(mat.name if mat else None)
-        tree = mat.node_tree if mat else None
-        if tree is None:
-            continue
-        for node in tree.nodes:
-            items.append((node.name, node.bl_idname, node.mute))
-            image = getattr(node, "image", None)
-            if image is not None:
-                items.append((image.name, image.filepath))
-            for sock in node.inputs:
-                value = getattr(sock, "default_value", None)
-                try:
-                    value = tuple(value)
-                except TypeError:
-                    pass
-                items.append((sock.identifier, value))
-        for link in tree.links:
-            items.append((link.from_node.name, link.from_socket.identifier,
-                          link.to_node.name, link.to_socket.identifier, link.is_muted))
-    return hash(repr(items))
+        if mat is not None:
+            _node_tree_items(mat.node_tree, items, seen)
+    h.update(repr(items).encode())
+    h.update(repr(round(distance_share, 6)).encode())
+    return (ob.data.as_pointer(), h.hexdigest())
 
 
 def _see_through(ob, md, face_role):
@@ -404,8 +502,8 @@ def _see_through(ob, md, face_role):
 
 def ambient_occlusion(context, ob, md, height, distance_share, tree=None, face_role=None,
                       leaves=False):
-    """Baked AO per corner, cached while the mesh, the distance, the scale and
-    the materials stay the same.
+    """Baked AO per corner, cached while nothing the bake depends on changes
+    (see _bake_key).
 
     height is in mesh units; Cycles bakes in world units, so the object's
     scale goes in (a tree imported at 0.01 would otherwise get 100 times the
@@ -416,8 +514,7 @@ def ambient_occlusion(context, ob, md, height, distance_share, tree=None, face_r
     their AO from a second bake with plain materials (see _bake).
     """
     scale = abs(float(np.linalg.det(np.array(ob.matrix_world)[:3, :3]))) ** (1.0 / 3.0)
-    key = (ob.data.as_pointer(), md.checksum(), round(distance_share, 4), round(scale, 6),
-           _materials_key(ob))
+    key = _bake_key(context, ob, md, distance_share)
     distance = max(distance_share * height * scale, 1e-4)
     hit = _cache.get(ob.name)
     if hit is None or hit["key"] != key:

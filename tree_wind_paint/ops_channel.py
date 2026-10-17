@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Paint one channel on its own.
 
@@ -67,6 +67,8 @@ class TREEWIND_OT_channel_edit(bpy.types.Operator):
             return {'CANCELLED'}
         with ObjectMode(ob):
             attr = wind_attribute(me, create=True)
+            # by name: adding or removing a layer leaves old references pointing elsewhere
+            src_name = attr.name
             grey = read_corners(me, attr)[:, CHANNEL_INDEX[self.channel]]
             rgba = np.ones((len(grey), 4), np.float32)
             rgba[:, :3] = grey[:, None]
@@ -74,7 +76,7 @@ class TREEWIND_OT_channel_edit(bpy.types.Operator):
             drop_helper(me, PREVIEW_ATTR)
             tmp = me.color_attributes.new(TEMP_ATTR, 'BYTE_COLOR', 'CORNER')
             tmp.data.foreach_set("color_srgb", rgba.ravel())
-            me[ISO_SRC_KEY] = attr.name
+            me[ISO_SRC_KEY] = src_name
             me[ISO_CH_KEY] = self.channel
             set_active(me, TEMP_ATTR)
         if ob.mode != 'VERTEX_PAINT':
@@ -100,8 +102,10 @@ class TREEWIND_OT_channel_apply(bpy.types.Operator):
         with ObjectMode(ob):
             src = me.color_attributes.get(src_name)
             if src is None:
-                _drop_temp(me)
-                self.report({'ERROR'}, iface_("Attribute \"{:s}\" is gone").format(src_name))
+                # keep the painting: the source may only have been renamed
+                self.report({'ERROR'}, iface_(
+                    "Attribute \"{:s}\" is gone: give the wind colours that name again, "
+                    "or Cancel").format(src_name))
                 return {'CANCELLED'}
             grey = read_corners(me, me.color_attributes[TEMP_ATTR])[:, :3].mean(axis=1)
             write_channels(me, src, grey, [channel])
