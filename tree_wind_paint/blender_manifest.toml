@@ -1,0 +1,18 @@
+schema_version = "1.0.0"
+
+id = "tree_wind_paint"
+version = "0.3.1"
+name = "Tree Wind Paint"
+tagline = "Tree wind vertex colours painted from the tree's structure"
+maintainer = "zloy_pingvin"
+type = "add-on"
+
+website = "https://t.me/zloytux"
+
+tags = ["Paint", "Mesh"]
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-2.0-or-later",
+]
