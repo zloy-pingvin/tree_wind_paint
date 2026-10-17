@@ -287,6 +287,8 @@ class TREEWIND_PT_uv_editor(bpy.types.Panel):
             layout.label(text=iface_("Painting {:s} of {:s}").format(iso[1], iso[0]),
                          icon='BRUSH_DATA', translate=False)
         grid = layout.grid_flow(row_major=True, columns=3, even_columns=True, align=True)
+        # while a channel is being painted the UV tools paint that channel
+        grid.enabled = iso is None
         for ch in ('R', 'G', 'B'):
             grid.prop_enum(s, "gradient_channel", ch, text="", icon=ICON[ch])
         brush_values(layout, s)

@@ -7,6 +7,7 @@ from bpy.props import StringProperty
 
 from . import ui
 
+URL_GITHUB = "https://github.com/zloy-pingvin/tree_wind_paint"
 URL_TELEGRAM = "https://t.me/zloytux"
 
 # operators with a UV editor hotkey (registered in __init__)
@@ -32,6 +33,7 @@ class TREEWIND_AddonPreferences(bpy.types.AddonPreferences):
                   translate=False)
         links = layout.row(align=True)
         links.scale_y = 1.2
+        links.operator("wm.url_open", text="GitHub", icon='URL').url = URL_GITHUB
         links.operator("wm.url_open", text="Telegram", icon='COMMUNITY').url = URL_TELEGRAM
 
         layout.separator()

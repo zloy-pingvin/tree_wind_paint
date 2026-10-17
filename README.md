@@ -22,7 +22,7 @@ The trunk itself stays at B = 0: the wind shader is expected to sway the trunk o
 
 ## Installation
 
-1. Download the `.zip` from the releases (or build it, see below).
+1. Download the `.zip` from the [releases](https://github.com/zloy-pingvin/tree_wind_paint/releases) (or build it, see below).
 2. In Blender: **Edit > Preferences > Get Extensions**, menu **⌄ > Install from Disk…**, pick the zip.
 
 The panels are in the 3D View sidebar (**N**), tab **Tree Wind**. The tab name can be changed in the add-on's preferences.
@@ -93,3 +93,5 @@ GPL-2.0-or-later.
 ## Author
 
 zloy_pingvin, Telegram: https://t.me/zloytux
+
+Bug reports and ideas: [Issues](https://github.com/zloy-pingvin/tree_wind_paint/issues).

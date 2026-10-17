@@ -80,23 +80,23 @@ class TREEWIND_OT_uv_copy(bpy.types.Operator):
                 return {'CANCELLED'}
             attr, channels = _target(me, channels)
             rgba = read_corners(me, attr)
-            keys = analysis.uv_keys(uv)
+            # a copy is the same UV point in the same material: two cards of
+            # different materials may share UVs and must not mix
+            pairs = np.stack([md.poly_mat[md.loop_poly], analysis.uv_keys(uv)], axis=1)
+            _u, group = np.unique(pairs, axis=0, return_inverse=True)
+            group = group.ravel()
             src = sel[md.loop_poly]
-            skeys, inv = np.unique(keys[src], return_inverse=True)
-            inv = inv.ravel()
-            cnt = np.bincount(inv)
-            mean = np.stack([np.bincount(inv, weights=rgba[src, k]) / cnt for k in range(3)], axis=1)
-            # only shown faces with the same materials as the source
-            mats = np.unique(md.poly_mat[sel])
-            cand = ~src & visible[md.loop_poly] & np.isin(md.poly_mat[md.loop_poly], mats)
-            pos = np.searchsorted(skeys, keys)
-            pos = np.clip(pos, 0, len(skeys) - 1)
-            hit = cand & (skeys[pos] == keys)
+            ngroup = len(_u)
+            cnt = np.bincount(group[src], minlength=ngroup)
+            mean = np.stack([np.bincount(group[src], weights=rgba[src, k], minlength=ngroup)
+                             / np.maximum(cnt, 1) for k in range(3)], axis=1)
+            # only shown faces
+            hit = ~src & visible[md.loop_poly] & (cnt[group] > 0)
             if not hit.any():
                 self.report({'WARNING'}, iface_("No other faces share these UV points"))
                 return {'CANCELLED'}
             values = np.zeros((md.nl, 3))
-            values[hit] = mean[pos[hit]]
+            values[hit] = mean[group[hit]]
             write_channels(me, attr, values, channels, hit)
             faces = np.unique(md.loop_poly[hit])
         self.report({'INFO'}, iface_("Copied {:s} to {:d} faces").format("".join(channels), len(faces)))
@@ -188,8 +188,9 @@ def apply_uv_gradient(context, ob, start, end, mode, channel, power, v_from, v_t
         else:
             t = np.clip(((uv - s) @ dvec) / max(float(dvec @ dvec), 1e-12), 0.0, 1.0) ** power
         values = v_from + (v_to - v_from) * t
-        iso = isolated(me)
-        if iso and iso[1] == channel:
+        # While a channel is being painted everything goes into its grey copy,
+        # whatever channel the UV editor shows: Cancel must drop it all.
+        if isolated(me):
             attr = me.color_attributes[TEMP_ATTR]
             rgba = read_corners(me, attr).copy()
             new = np.clip(blend_values(rgba[:, :3].mean(axis=1), values, blend), 0.0, 1.0)
@@ -264,9 +265,10 @@ class TREEWIND_OT_uv_gradient(bpy.types.Operator):
         self.scope = s.gradient_scope
 
     def _status(self, context):
+        iso = isolated(context.active_object.data)
         context.workspace.status_text_set(
             iface_("Drag across a card: {:s} goes {:.2f} → {:.2f}. Esc / right click cancels").format(
-                self.channel, self.value_from, self.value_to))
+                iso[1] if iso else self.channel, self.value_from, self.value_to))
 
     def _draw(self):
         if self._a is None:

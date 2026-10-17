@@ -356,6 +356,34 @@ def _sample(ao, co, corners, point):
     return float(sum(wt * ao[x] for wt, x in zip(weights, corners)))
 
 
+def _materials_key(ob):
+    """Something that changes when the object's materials change: the bake
+    goes through them (transparent parts of leaf cards let AO rays pass)."""
+    items = []
+    for slot in ob.material_slots:
+        mat = slot.material
+        items.append(mat.name if mat else None)
+        tree = mat.node_tree if mat else None
+        if tree is None:
+            continue
+        for node in tree.nodes:
+            items.append((node.name, node.bl_idname, node.mute))
+            image = getattr(node, "image", None)
+            if image is not None:
+                items.append((image.name, image.filepath))
+            for sock in node.inputs:
+                value = getattr(sock, "default_value", None)
+                try:
+                    value = tuple(value)
+                except TypeError:
+                    pass
+                items.append((sock.identifier, value))
+        for link in tree.links:
+            items.append((link.from_node.name, link.from_socket.identifier,
+                          link.to_node.name, link.to_socket.identifier, link.is_muted))
+    return hash(repr(items))
+
+
 def _see_through(ob, md, face_role):
     """Whether a leaf material can be transparent (then the leaves need the
     plain bake): an alpha input linked or below 1, a transparent shader, or
@@ -376,7 +404,8 @@ def _see_through(ob, md, face_role):
 
 def ambient_occlusion(context, ob, md, height, distance_share, tree=None, face_role=None,
                       leaves=False):
-    """Baked AO per corner, cached while the mesh and the distance stay the same.
+    """Baked AO per corner, cached while the mesh, the distance, the scale and
+    the materials stay the same.
 
     height is in mesh units; Cycles bakes in world units, so the object's
     scale goes in (a tree imported at 0.01 would otherwise get 100 times the
@@ -387,7 +416,8 @@ def ambient_occlusion(context, ob, md, height, distance_share, tree=None, face_r
     their AO from a second bake with plain materials (see _bake).
     """
     scale = abs(float(np.linalg.det(np.array(ob.matrix_world)[:3, :3]))) ** (1.0 / 3.0)
-    key = (ob.data.as_pointer(), md.checksum(), round(distance_share, 4), round(scale, 6))
+    key = (ob.data.as_pointer(), md.checksum(), round(distance_share, 4), round(scale, 6),
+           _materials_key(ob))
     distance = max(distance_share * height * scale, 1e-4)
     hit = _cache.get(ob.name)
     if hit is None or hit["key"] != key:

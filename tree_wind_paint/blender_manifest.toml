@@ -1,13 +1,13 @@
 schema_version = "1.0.0"
 
 id = "tree_wind_paint"
-version = "0.3.1"
+version = "0.3.2"
 name = "Tree Wind Paint"
 tagline = "Tree wind vertex colours painted from the tree's structure"
 maintainer = "zloy_pingvin"
 type = "add-on"
 
-website = "https://t.me/zloytux"
+website = "https://github.com/zloy-pingvin/tree_wind_paint"
 
 tags = ["Paint", "Mesh"]
 
