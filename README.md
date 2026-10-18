@@ -1,99 +1,154 @@
-# Tree Wind Paint
+<p align="center">
+  <img src="docs/images/hero.svg" alt="Tree Wind Paint — wind vertex colours for Blender" width="100%">
+</p>
 
-A Blender add-on that paints wind vertex colours on a tree mesh from the tree's own structure, then lets you correct them by hand, channel by channel or by UV.
+<p align="center">
+  A Blender add-on for painting wind vertex colours on trees.<br>
+  Auto-paint your tree, draw gradients inside 3D bounds, or paint through shared UVs.
+</p>
 
-It reads the mesh as a tree: it finds the trunk, the branches and what grows on what, hangs every leaf card on the branch it belongs to, and paints the channels a wind shader reads. Where a twig or a leaf meets its parent, its colour is exactly the parent's colour there, so the animation does not tear at the joints.
+<p align="center">
+  <a href="https://github.com/zloy-pingvin/tree_wind_paint/releases"><strong>Download</strong></a>
+  &nbsp; · &nbsp;
+  <a href="#quick-start">Quick start</a>
+  &nbsp; · &nbsp;
+  <a href="#gradients-with-bounds">3D gradients</a>
+  &nbsp; · &nbsp;
+  <a href="#painting-through-uvs">UV painting</a>
+  &nbsp; · &nbsp;
+  <a href="#wind-preview">Wind preview</a>
+  &nbsp; &middot; &nbsp;
+  <a href="https://github.com/zloy-pingvin/tree_wind_paint/issues">Report a bug</a>
+</p>
 
-## Channels
+<p align="center">Blender 4.5+ · English & Russian UI</p>
 
-| Channel | Meaning | How it is painted |
-|---|---|---|
-| **R** | Leaf flutter | 0 at the leaf's stem, rising to the tip. Leaf cards that share UVs get the same values. |
-| **G** | Phase (time offset) | One value per branch, so a branch moves as a whole. Twigs and leaves take their branch's value. |
-| **B** | Branch bend | 0 on the trunk, growing along each limb to its tips. Twigs and leaves continue the value of the point they grow from. |
-| **A** | Ambient occlusion | Baked with Cycles, darker towards the ground. Optional. |
+## What it does
 
-The trunk itself stays at B = 0: the wind shader is expected to sway the trunk on its own (by height). This is the convention of the UNIGINE vegetation shaders and is close to the CryEngine / SpeedTree layout.
+Tree Wind Paint finds the trunk and branches, works out which branch each leaf belongs to, and paints the colours a wind shader needs. Twigs and leaves inherit their parent’s values at the joints, so the colours stay continuous where they meet.
 
-## Requirements
+**Paint within a volume:** draw a gradient along a branch and use its bounds to control exactly which vertices change. **Paint through UVs:** work on one leaf card in the UV Editor and update its copies together. You can also use Blender’s usual Vertex Paint brushes on each channel.
 
-- Blender 4.2 or newer (tested on 4.2, 4.5, 5.0 and 5.2)
-- Cycles turned on, for the AO channel
+Preview the wind in Blender to see how the painted channels move the tree. The preview uses UNIGINE's wind formula; your engine's shader determines the final animation.
 
 ## Installation
 
-1. Download the `.zip` from the [releases](https://github.com/zloy-pingvin/tree_wind_paint/releases) (or build it, see below).
-2. In Blender: **Edit > Preferences > Get Extensions**, menu **⌄ > Install from Disk…**, pick the zip.
+1. Download the extension ZIP from [Releases](https://github.com/zloy-pingvin/tree_wind_paint/releases).
+2. In Blender, open **Edit → Preferences → Get Extensions**.
+3. Open the dropdown menu and choose **Install from Disk…**, then select the ZIP.
+4. In the 3D Viewport, press **N** and open **Tree Wind**.
 
-The panels are in the 3D View sidebar (**N**), tab **Tree Wind**. The tab name can be changed in the add-on's preferences.
+You’ll also find a **Tree Wind** panel in the UV Editor sidebar. Cycles is needed only for the AO bake.
 
-## Usage
+## Quick start
 
-### Auto Paint
-
-1. Select the tree mesh.
-2. Check the material roles in the panel. Each material is **Bark**, **Leaves**, **Bare Branches** (dead or leafless wood, nothing hangs on it and it does not bend), **Skip** or **Auto**. Auto guesses by the material name (leaf, needle, bark, trunk, dead, dry…), otherwise by shape, and shows its guess under the drop-down.
-3. Pick the channels to paint with the **R G B A** toggles.
+1. Select your tree mesh.
+2. Check the material roles. Start with **Auto**, or set **Bark** and **Leaves** yourself.
+3. Choose the **R G B A** channels to paint. Turn off **A** if you don’t need AO.
 4. Press **Auto Paint**.
+5. Open **Wind Preview** and press **Wind Preview** to check the tree in motion.
 
-The toggles also choose what the viewport shows: a single channel is shown as grey, several channels in colour. This works in Object Mode only. Turn all of R, G and B back on before exporting, otherwise a helper attribute stays on the mesh.
+Use **Show Branches** to see how the tree was split into branches. If something looks wrong, check the material roles first. **Bare Branches** keeps dead or leafless wood rigid; **Skip** leaves faces unpainted. The **Tree Structure** settings let you adjust where the trunk splits into limbs.
 
-**Show Branches** paints every branch found in its own colour, to check how the tree was understood. **Show Wind Colors** goes back to the wind colours and removes the helper attributes.
+Press **Show Wind Colors** to return to the painted result. In **Object Mode**, selecting one channel shows it in greyscale; turning on R, G and B shows the combined colours.
 
-### Settings
+## Gradients with bounds
 
-- **Bend Curve**: how steeply B grows along a limb.
-- **Leafless Branches Don't Bend**: a branch with no leaves on it keeps the B of the point it grows from.
-- **Flutter Curve**: how R grows from a leaf's stem to its tip.
-- **Phase Seed**: reshuffles the G values.
-- **AO Range**, **Ground Gradient**, **AO on Leaves**: the alpha channel.
+**Draw the gradient and choose the area it paints.** A linear gradient has a start, an end and a radius; a radial gradient can use a 3D sphere or a circle in the current view. This is useful when you want a smooth change along one branch or across a group of leaves.
 
-**Tree Structure** (fork ratio, fork angle, minimal branch length) controls where the trunk splits into limbs. The defaults work for most trees.
+<img src="docs/images/gradient-bounds.svg" alt="Gradient bounds: finite cylinder for linear painting, a sphere for a 3D radial gradient, and a screen-space circle" width="100%">
 
-### Manual Paint by Channel
+<sub>Tool diagrams showing the painting bounds.</sub>
 
-Press a channel button to paint that channel alone. It is copied as grey into a temporary attribute, and every Vertex Paint brush and tool works on it. **Apply** writes it back into its channel, **Cancel** drops the changes.
+| Mode | What gets painted | How you control it |
+| :--- | :--- | :--- |
+| **Linear · Cylinder** | Vertices inside the cylinder between the two endpoints. Values change along its length; vertices outside its radius or past either end stay unchanged. | Drag from start to end. Turn the mouse wheel while dragging to change the radius. |
+| **Radial · Sphere** | Vertices inside a sphere in 3D. Values change with distance from its centre. | Choose **Sphere**, then drag from the centre to set the radius. |
+| **Radial · Circle** | Vertices inside the circle as seen from the current view, across depth. | Choose **Circle**, then drag out its radius on screen. |
 
-While a channel is being painted:
+To use them, choose **R**, **G**, **B** or **A** in **Manual Paint by Channel**, set the two brush values, and press **Linear** or **Radial**. Drag in the viewport. The guides show the bounds while you work.
 
-- the two brush values, with **X** to swap them and **Ctrl+X** to fill;
-- **Blend**: Replace, Add or Multiply, shared with the brush;
-- **Linear** gradient: drag along a branch. The ends stick to the surface, and only a cylinder around the line is painted (mouse wheel while dragging sets its radius);
-- **Radial** gradient: a circle on the screen or a sphere in 3D;
-- **Randomize Parts**: one random value per loose part of the mesh;
-- **Levels**: input black and white points, gamma, output range.
+Use **Replace**, **Add** or **Multiply** to mix the gradient with existing paint. Face and vertex selection masks narrow the affected area further; hidden elements are left alone. **X** swaps the values, **Ctrl + X** fills, and **Esc / right-click** cancels the gradient.
 
-Selection masking (faces or vertices) limits all of them.
+**Apply** writes the greyscale edits back into the original channel. **Cancel** discards them. You can use normal Vertex Paint brushes, **Levels** and **Randomize Parts** on the same channel too.
 
-### Paint by UV
+## Painting through UVs
 
-Leaf cards are usually copies of a few card types that share their UVs.
+**Paint one card and update its copies together.** When leaf cards share UV coordinates, a gradient drawn over their UV island can reach all the matching copies at once.
 
-- **Copy to Same UV**: paint one leaf, select it (Edit Mode, or Vertex Paint with face masking) and copy its colour to every copy of the same card.
-- In the **UV Editor** sidebar, a linear or radial gradient dragged across a card in UV space paints that card on every leaf that shares it. **X** swaps the values, **Ctrl+X** fills the shown faces.
+<img src="docs/images/uv-painting.svg" alt="Draw a gradient over one UV island to paint matching leaf cards; cards using another material remain unchanged" width="100%">
 
-## Notes
+<sub>The same principle also lets you copy a hand-painted correction through shared UVs.</sub>
 
-- AO is baked with Cycles. Other objects are hidden while it bakes, and the scene settings are restored afterwards.
-- A branch modelled as a separate piece stuck into the trunk gets the trunk's AO where it goes in, so the joint shows no seam. Short stubs and knots take the trunk's AO all over.
-- Helper attributes are named `TWP_*`. Remove them, or press Show Wind Colors, before exporting.
-- The UI is in English and Russian.
+### Draw a UV gradient
 
-## Building
+1. Open **UV Editor → Sidebar → Tree Wind**.
+2. Choose the channel, the two values and a **Linear** or **Radial** gradient.
+3. Choose **Card Under Cursor** to work on the UV island where the drag starts and its overlapping copies, or **All Faces** to work across the faces shown by the tool.
+4. Drag across the card. A linear gradient runs along the line; a radial gradient paints inside the circle you draw.
 
-```
-blender --factory-startup --command extension build --source-dir tree_wind_paint --output-dir dist
-blender --factory-startup --command extension validate dist/tree_wind_paint-<version>.zip
-```
+**Card Under Cursor** keeps the operation within the picked material. In Vertex Paint, selection masks also limit the result. **X** swaps the two values and **Ctrl + X** fills.
 
-## License
+### Copy a painted leaf to its copies
 
-Copyright (C) 2026 zloy_pingvin
+Paint one leaf, then select its faces in **Edit Mode**, or in **Vertex Paint** with face selection masking on. Choose the RGB channels under **Paint by UV** and press **Copy to Same UV**.
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed WITHOUT ANY WARRANTY. See [LICENSE](LICENSE) for the full text.
+Colours are copied to matching UV corners **within the same material**. While a channel is isolated, both UV tools edit that same greyscale copy, so **Apply** and **Cancel** still work on the whole edit.
 
-## Author
+## Wind preview
 
-zloy_pingvin, Telegram: https://t.me/zloytux
+**See how your paint behaves while the tree moves.** Use the preview to check branch bending, leaf flutter and the joints between them before exporting.
 
-Bug reports and ideas: [Issues](https://github.com/zloy-pingvin/tree_wind_paint/issues).
+1. Paint the tree, then open **Wind Preview** in the **Tree Wind** sidebar panel.
+2. Press **Wind Preview**. A settings window opens and the timeline starts playing if it was stopped.
+3. Adjust the wind and watch the result. If a joint pulls apart, check that the connected parts have matching colours there.
+4. Press **Stop** or click outside the settings window to end the preview. Your settings are remembered on the object for next time.
+
+| Settings | What they control |
+| :--- | :--- |
+| **Stem Offset, Radius, Speed, Noise** | Sway of the whole tree, based on height. |
+| **Branch Offset, Speed** | Branch movement, weighted by **B**. |
+| **Leaves Offset, Speed, Noise** | Leaf flutter, weighted by **R**. **G** offsets the animation phase between branches. |
+| **Wind** | The wind vector. |
+
+The preview follows UNIGINE's `mesh_base` formula with leaves set to *geometry vertex color based*. The parameter names and slider scaling follow that material, so you can enter its animation settings directly. Calculations use the mesh's local coordinates; object rotation and scale can make the result differ from the engine. Other wind shaders may interpret the colours differently.
+
+The preview uses a temporary Geometry Nodes modifier and is suspended during AO baking. Stopping it removes the modifier. If it started timeline playback, it also stops playback and restores the starting frame; an already playing timeline keeps running.
+
+## Wind channels
+
+<img src="docs/images/channels.svg" alt="Wind channels: red for leaf flutter, green for phase, blue for bending and alpha for AO" width="100%">
+
+| Channel | Meaning | Values |
+| :---: | :--- | :--- |
+| **R** | Leaf flutter | 0 at the leaf’s stem, increasing towards its tip. Matching UV corners within the same material get matching values. |
+| **G** | Phase / time offset | One value per branch, shared by its twigs and leaves. |
+| **B** | Branch bend | 0 on the trunk, increasing towards the tips. Child branches continue from their parent’s value at the joint. |
+| **A** | Ambient occlusion | Optional Cycles bake, with extra darkening near the ground controlled by **Ground Gradient**. |
+
+The trunk stays at **B = 0** in this add-on because trunk sway is handled separately by the shader, usually by height. Engine conventions differ: the CRYENGINE and Lumberyard articles below describe an inverted blue bend channel. Check your shader’s expected values before exporting.
+
+### How engines use vertex colours for wind
+
+These guides explain the shader side of the workflow:
+
+- [CRYENGINE 3 — Detail Bending](https://www.cryengine.com/docs/static/engines/cryengine-3/categories/1114113/pages/1310878)
+- [UNIGINE — Vertex Color Vegetation](https://developer.unigine.com/en/docs/latest/videotutorials/how_to/how_to_rendering/vertex_color_vegetation)
+- [SpeedTree Modeler — Lumberyard wind](https://docs.unity3d.com/speedtree-modeler/manual/wind-lumberyard.html)
+
+The SpeedTree article covers its Lumberyard workflow; it does not describe every SpeedTree or Unity wind setup.
+
+## Before exporting
+
+1. Apply the channel edits you want to keep.
+2. Stop **Wind Preview**. If **Remove Preview** is shown in the panel, press it; check that the `TWP_WindPreview` modifier is gone.
+3. Switch to **Object Mode** and press **Show Wind Colors** to restore the wind colour display.
+4. Remove any remaining `TWP_*` helper attributes and check that your exporter includes the wind colours.
+
+## Questions or bugs?
+
+[Open an issue](https://github.com/zloy-pingvin/tree_wind_paint/issues) with your Blender version and the steps that led to the problem. A small `.blend` file helps. Suggestions are welcome too.
+
+Made by [zloy_pingvin](https://github.com/zloy-pingvin) · [Telegram](https://t.me/zloytux)
+
+[GNU GPL v3 or later](LICENSE) · Copyright © 2026 zloy_pingvin

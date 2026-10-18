@@ -66,6 +66,7 @@ class TREEWIND_AddonPreferences(bpy.types.AddonPreferences):
         col.label(text="The AO bake uses Cycles; other objects are hidden while it bakes")
         col.label(text="TWP_* colour attributes are helpers: turn on R G B (or Show Wind "
                        "Colors) before export")
+        col.label(text="Remove the Wind Preview modifier before export")
 
 
 CLASSES = (TREEWIND_AddonPreferences,)

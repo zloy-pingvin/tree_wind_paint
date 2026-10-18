@@ -3,7 +3,7 @@
 
 import bpy
 
-from . import analysis, ops_gradient, ops_uv
+from . import analysis, ops_gradient, ops_uv, wind_preview
 from .colors import ICON, PREVIEW_ATTR, isolated, wind_attribute
 from .translations import iface_
 
@@ -163,6 +163,34 @@ class TREEWIND_PT_structure(bpy.types.Panel):
         col.prop(s, "fork_ratio")
         col.prop(s, "fork_angle")
         col.prop(s, "min_branch")
+
+
+class TREEWIND_PT_wind_preview(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Tree Wind"
+    bl_parent_id = "TREEWIND_PT_main"
+    bl_label = "Wind Preview"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    poll = classmethod(_mesh_poll)
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon='PLAY')
+
+    def draw(self, context):
+        layout = self.layout
+        ob = _mesh(context)
+        mod = wind_preview.modifier(ob)
+        row = layout.row()
+        row.scale_y = 1.3
+        # a modifier left from an older version or a script: the button takes it off
+        row.operator("tree_wind.wind_preview", text="Remove Preview" if mod else "Wind Preview",
+                     icon='CANCEL' if mod else 'PLAY')
+        hint = layout.column(align=True)
+        hint.active = False
+        hint.label(text="UNIGINE mesh_base formula")
+        hint.label(text="Click outside its window to stop")
 
 
 class TREEWIND_PT_channels(bpy.types.Panel):
@@ -367,6 +395,7 @@ CLASSES = (
     TREEWIND_PT_main,
     TREEWIND_PT_settings,
     TREEWIND_PT_structure,
+    TREEWIND_PT_wind_preview,
     TREEWIND_PT_channels,
     TREEWIND_PT_uv,
     TREEWIND_PT_uv_help,

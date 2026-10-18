@@ -167,11 +167,17 @@ class TREEWIND_OT_gradient(bpy.types.Operator):
         nv = len(me.vertices)
         local = np.empty(nv * 3, np.float32)
         me.vertices.foreach_get("co", local)
+        # the faces too: the same vertices can be joined differently
+        loops = np.empty(len(me.loops), np.int32)
+        me.loops.foreach_get("vertex_index", loops)
+        totals = np.empty(len(me.polygons), np.int32)
+        me.polygons.foreach_get("loop_total", totals)
+        topology = np.concatenate([loops, totals])
         mw = np.array(ob.matrix_world)
         if self._local is not None and np.array_equal(local, self._local) \
-                and np.array_equal(mw, self._matrix):
+                and np.array_equal(topology, self._topology) and np.array_equal(mw, self._matrix):
             return
-        self._local, self._matrix = local, mw
+        self._local, self._topology, self._matrix = local, topology, mw
         co = local.reshape(nv, 3).astype(np.float64)
         self._co = co @ mw[:3, :3].T + mw[:3, 3]
         me.calc_loop_triangles()

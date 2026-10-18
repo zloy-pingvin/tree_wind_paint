@@ -19,7 +19,7 @@ from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.interpolate import poly_3d_calc
 
-from . import analysis
+from . import analysis, wind_preview
 from .colors import set_active
 from .translations import iface_
 
@@ -88,8 +88,9 @@ def _bake(context, ob, distance, plain=False):
         set_active(me, tmp_name)
         # every bake setting that matters is given: the scene's own (Selected
         # to Active, a cage...) are for the user's bakes, not this one
-        bpy.ops.object.bake(type='AO', target='VERTEX_COLORS', use_clear=True,
-                            use_selected_to_active=False, use_cage=False)
+        with wind_preview.suspended(ob):   # bake the tree at rest
+            bpy.ops.object.bake(type='AO', target='VERTEX_COLORS', use_clear=True,
+                                use_selected_to_active=False, use_cage=False)
         # linear: AO is a fraction of open sky, not a colour to display
         attr = me.color_attributes[tmp_name]
         buf = np.empty(len(attr.data) * 4, np.float32)
@@ -380,17 +381,42 @@ _UI_PROPS = {'location', 'width', 'height', 'select', 'hide', 'show_options', 's
              'show_on_cage', 'is_active', 'show_pin'}
 
 
-def _simple_props(struct, items):
-    """The plain settings of a data block or node (numbers, flags, choices)."""
+def _simple_props(struct, items, refs=False):
+    """The plain settings of a data block, node or modifier (numbers, flags,
+    choices). With refs, also the objects it points to, by where they are:
+    a mirror object moved changes a modifier's result."""
     for prop in struct.bl_rna.properties:
-        if prop.type in {'ENUM', 'BOOLEAN', 'INT', 'FLOAT', 'STRING'} and not prop.is_readonly \
-                and prop.identifier not in _UI_PROPS:
+        if prop.identifier in _UI_PROPS:
+            continue
+        if prop.type in {'ENUM', 'BOOLEAN', 'INT', 'FLOAT', 'STRING'} and not prop.is_readonly:
             value = getattr(struct, prop.identifier, None)
             try:
                 value = tuple(value)
             except TypeError:
                 pass
             items.append((prop.identifier, value))
+        elif refs and prop.type == 'POINTER':
+            target = getattr(struct, prop.identifier, None)
+            if isinstance(target, bpy.types.ID):
+                items.append((prop.identifier, target.name))
+                if isinstance(target, bpy.types.Object):
+                    items.append(tuple(round(v, 6) for row in target.matrix_world for v in row))
+                    if target.type == 'MESH':
+                        items.append(_mesh_key(target.data))
+
+
+def _mesh_key(me):
+    """Geometry of a mesh another object's modifier reads."""
+    co = np.empty(len(me.vertices) * 3, np.float32)
+    me.vertices.foreach_get("co", co)
+    lv = np.empty(len(me.loops), np.int32)
+    me.loops.foreach_get("vertex_index", lv)
+    return hashlib.blake2b(co.tobytes() + lv.tobytes(), digest_size=16).hexdigest()
+
+
+def _packed_hash(packed):
+    """Hash of a packed file's bytes (a few tens of ms even for a 4K texture)."""
+    return hashlib.blake2b(packed.data, digest_size=16).hexdigest()
 
 
 def _image_items(image, items):
@@ -404,7 +430,8 @@ def _image_items(image, items):
         image.pixels.foreach_get(pixels)
         items.append(hashlib.blake2b(pixels.tobytes(), digest_size=16).hexdigest())
     elif image.packed_file is not None:
-        items.append(image.packed_file.size)
+        # a repacked texture may keep its size: the bytes tell
+        items.append(_packed_hash(image.packed_file))
     else:
         path = bpy.path.abspath(image.filepath, library=image.library)
         try:
@@ -428,12 +455,14 @@ def _node_tree_items(tree, items, seen):
         _simple_props(node, items)
         ramp = getattr(node, "color_ramp", None)
         if ramp is not None:
-            items.append((ramp.interpolation, ramp.color_mode,
-                          [(e.position, tuple(e.color)) for e in ramp.elements]))
+            _simple_props(ramp, items)   # interpolation, colour and hue modes
+            items.append([(e.position, tuple(e.color)) for e in ramp.elements])
         mapping = getattr(node, "mapping", None)
         if mapping is not None and hasattr(mapping, "curves"):
-            items.append([[(tuple(p.location), p.handle_type) for p in c.points]
-                          for c in mapping.curves])
+            _simple_props(mapping, items)   # black / white levels, clipping, extend...
+            for curve in mapping.curves:
+                _simple_props(curve, items)
+                items.append([(tuple(p.location), p.handle_type) for p in curve.points])
         # RGB, Value and the like keep their value on the output
         for sock in list(node.inputs) + list(node.outputs):
             items.append((sock.identifier, _socket_value(sock)))
@@ -443,7 +472,27 @@ def _node_tree_items(tree, items, seen):
                       link.to_node.name, link.to_socket.identifier, link.is_muted))
 
 
-def _bake_key(context, ob, md, distance_share):
+def _node_inputs(mod):
+    """The values a Geometry Nodes modifier gives its group's inputs."""
+    if mod.node_group is None:
+        return None
+    out = []
+    for name in wind_preview.input_ids(mod):
+        try:
+            value = wind_preview.get_input(mod, name)
+        except (KeyError, AttributeError, TypeError):
+            continue   # sockets without a value (geometry)
+        if isinstance(value, bpy.types.ID):
+            value = value.name
+        try:
+            value = tuple(value)
+        except TypeError:
+            pass
+        out.append((name, repr(value)))
+    return out
+
+
+def _bake_key(context, ob, md, distance_share, height=None):
     """Something that changes whenever the bake could come out different: the
     geometry as rendered (modifiers, shape keys), the UVs (where a leaf card
     is clear), the transform, the materials and the distance."""
@@ -459,26 +508,37 @@ def _bake_key(context, ob, md, distance_share):
     render_uv = next((layer.name for layer in me.uv_layers if layer.active_render), None)
     h.update(repr(render_uv).encode())
     items = []
-    if len(ob.modifiers) or me.shape_keys is not None:
-        evaluated = ob.evaluated_get(context.evaluated_depsgraph_get()).data
-        co = np.empty(len(evaluated.vertices) * 3, np.float32)
-        evaluated.vertices.foreach_get("co", co)
+    seen = set()
+    # the wind preview is not part of the tree: it is off while baking
+    mods = [m for m in ob.modifiers if m.name != wind_preview.MODIFIER]
+    if mods or me.shape_keys is not None:
+        with wind_preview.suspended(ob):
+            evaluated = ob.evaluated_get(context.evaluated_depsgraph_get()).data
+            co = np.empty(len(evaluated.vertices) * 3, np.float32)
+            evaluated.vertices.foreach_get("co", co)
+            npoly = len(evaluated.polygons)
         h.update(co.tobytes())
-        h.update(np.int64(len(evaluated.polygons)).tobytes())
+        h.update(np.int64(npoly).tobytes())
         # the bake renders: the modifiers' render settings (show_render, render
         # levels...) count, which the viewport geometry above does not show
-        for mod in ob.modifiers:
+        for mod in mods:
             items.append((mod.name, mod.type))
-            _simple_props(mod, items)
+            _simple_props(mod, items, refs=True)
+            if mod.type == 'NODES':
+                # its node tree and the values given to it: off in the viewport,
+                # it still renders, and the geometry above does not show it
+                _node_tree_items(mod.node_group, items, seen)
+                items.append(_node_inputs(mod))
     h.update(np.round(np.array(ob.matrix_world)[:3, :3], 6).tobytes())
-    seen = set()
     for slot in ob.material_slots:
         mat = slot.material
         items.append(mat.name if mat else None)
         if mat is not None:
             _node_tree_items(mat.node_tree, items, seen)
     h.update(repr(items).encode())
-    h.update(repr(round(distance_share, 6)).encode())
+    # the AO distance is a share of the tree's height, which the roles change
+    # (a material set to Skip) without touching the geometry
+    h.update(repr((round(distance_share, 6), None if height is None else round(height, 6))).encode())
     return (ob.data.as_pointer(), h.hexdigest())
 
 
@@ -514,7 +574,7 @@ def ambient_occlusion(context, ob, md, height, distance_share, tree=None, face_r
     their AO from a second bake with plain materials (see _bake).
     """
     scale = abs(float(np.linalg.det(np.array(ob.matrix_world)[:3, :3]))) ** (1.0 / 3.0)
-    key = _bake_key(context, ob, md, distance_share)
+    key = _bake_key(context, ob, md, distance_share, height)
     distance = max(distance_share * height * scale, 1e-4)
     hit = _cache.get(ob.name)
     if hit is None or hit["key"] != key:

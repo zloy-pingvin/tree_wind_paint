@@ -283,15 +283,20 @@ class TREEWIND_OT_uv_gradient(bpy.types.Operator):
         # the handler runs for every image editor: draw only in the one dragged in
         if self._a is None or bpy.context.area != self._area:
             return
+        a = self._start_px()
         c0 = (self.value_from,) * 3 + (1.0,)
         c1 = (self.value_to,) * 3 + (1.0,)
-        segs = [([self._a, self._b], [c0, c1])]
+        segs = [([a, self._b], [c0, c1])]
         if self.mode == 'RADIAL':
-            r = math.hypot(self._b[0] - self._a[0], self._b[1] - self._a[1])
-            strips = [(_circle(self._a, 4.0), c0), (_circle(self._a, r), c1)]
+            r = math.hypot(self._b[0] - a[0], self._b[1] - a[1])
+            strips = [(_circle(a, 4.0), c0), (_circle(a, r), c1)]
         else:
-            strips = [(_circle(self._a, 4.0), c0), (_circle(self._b, 4.0), c1)]
+            strips = [(_circle(a, 4.0), c0), (_circle(self._b, 4.0), c1)]
         draw_guides(segs, strips)
+
+    def _start_px(self):
+        # the start is kept in UV space: the view may be panned or zoomed while dragging
+        return tuple(self._region.view2d.view_to_region(*self._a, clip=False))
 
     def _cleanup(self, context):
         remove_handler(bpy.types.SpaceImageEditor, self._token)
@@ -317,19 +322,20 @@ class TREEWIND_OT_uv_gradient(bpy.types.Operator):
             if event.type == 'LEFTMOUSE' and event.value == 'PRESS' and inside:
                 self._take_settings(context)
                 self._status(context)
-                self._a = self._b = (x, y)
+                self._a = tuple(region.view2d.region_to_view(x, y))
+                self._b = (x, y)
                 self._area.tag_redraw()
                 return {'RUNNING_MODAL'}
             return {'PASS_THROUGH'}
         if event.type == 'MOUSEMOVE':
             self._b = (x, y)
         elif event.type == 'LEFTMOUSE' and event.value == 'RELEASE':
-            a, b = self._a, self._b
+            a, b = self._start_px(), self._b
             self._cleanup(context)
             if abs(a[0] - b[0]) + abs(a[1] - b[1]) < 4:
                 self.report({'WARNING'}, iface_("Drag a line, not a click"))
                 return {'CANCELLED'}
-            self.start = region.view2d.region_to_view(*a)
+            self.start = self._a
             self.end = region.view2d.region_to_view(*b)
             return self.execute(context)
         elif event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'TRACKPADPAN',

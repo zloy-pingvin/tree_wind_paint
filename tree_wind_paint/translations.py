@@ -168,6 +168,20 @@ ru_RU = {
     ("*", "In Vertex Paint, X and Ctrl+X are Blender's own keys"):
         "В Vertex Paint X и Ctrl+X — собственные клавиши Blender",
     ("*", "Notes"): "Заметки",
+    ("*", "Remove the Wind Preview modifier before export"):
+        "Перед экспортом убери модификатор предпросмотра ветра",
+    ("*", "Wind Preview"): "Предпросмотр ветра",
+    (_OP, "Wind Preview"): "Предпросмотр ветра",
+    (_OP, "Remove Preview"): "Убрать предпросмотр",
+    ("*", "Play the tree's wind in the viewport as UNIGINE moves it, from its wind "
+          "colours. A click outside the preview window stops it"):
+        "Проиграть ветер дерева во вьюпорте так, как его двигает UNIGINE, по цветам ветра. "
+        "Клик вне окна предпросмотра его останавливает",
+    ("*", "UNIGINE mesh_base formula"): "Формула UNIGINE mesh_base",
+    ("*", "Click outside its window to stop"): "Клик вне его окна — стоп",
+    ("*", "Click outside this window to stop"): "Клик вне этого окна — стоп",
+    ("*", "Stop"): "Стоп",
+    ("*", "Wind"): "Ветер",
     ("*", "The AO bake uses Cycles; other objects are hidden while it bakes"):
         "AO запекается через Cycles; остальные объекты на это время скрываются",
     ("*", "TWP_* colour attributes are helpers: turn on R G B (or Show Wind Colors) before export"):

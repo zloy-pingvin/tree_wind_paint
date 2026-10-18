@@ -117,7 +117,10 @@ def read_corners(me, attr):
 def write_corners(me, attr, rgba, mask=None):
     """Write RGBA per corner (sRGB). Corners outside mask keep their colour.
 
-    A point attribute gets the value of the last written corner of a vertex.
+    A point attribute holds one colour per vertex, shared by every face
+    around it: a vertex changes only when the mask lets all its corners
+    through (a masked-out face next to it keeps its colour), and it gets the
+    mean of its corners.
     """
     if mask is None:
         mask = np.ones(len(rgba), bool)
@@ -126,7 +129,12 @@ def write_corners(me, attr, rgba, mask=None):
     attr.data.foreach_get("color_srgb", cur)
     cur = cur.reshape(n, 4)
     if attr.domain == 'POINT':
-        cur[loop_verts(me)[mask]] = rgba[mask]
+        lv = loop_verts(me)
+        total = np.bincount(lv, minlength=n)
+        inside = np.bincount(lv[mask], minlength=n)
+        whole = (total > 0) & (inside == total)
+        sums = np.stack([np.bincount(lv, weights=rgba[:, k], minlength=n) for k in range(4)], 1)
+        cur[whole] = sums[whole] / total[whole, None]
     else:
         cur[mask] = rgba[mask]
     attr.data.foreach_set("color_srgb", cur.ravel())

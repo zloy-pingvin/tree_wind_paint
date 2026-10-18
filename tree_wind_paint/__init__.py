@@ -13,10 +13,10 @@ Metadata lives in blender_manifest.toml; extensions carry no bl_info.
 import bpy
 
 from . import (ops_autopaint, ops_channel, ops_gradient, ops_uv, preferences, props, translations,
-               ui)
+               ui, wind_preview)
 
 CLASSES = (props.CLASSES + ops_autopaint.CLASSES + ops_channel.CLASSES + ops_gradient.CLASSES
-           + ops_uv.CLASSES + ui.CLASSES + preferences.CLASSES)
+           + ops_uv.CLASSES + wind_preview.CLASSES + ui.CLASSES + preferences.CLASSES)
 
 
 # X swaps the two brush values and Ctrl+X fills, as in Vertex Paint. The UV
@@ -46,6 +46,10 @@ def unregister():
     # running gradient tools: their drawing would outlive the add-on
     ops_gradient.stop_all()
     ops_uv.stop_all()
+    try:
+        wind_preview.remove_all()
+    except AttributeError:
+        pass   # bpy.data not reachable in this context: nothing to clean
     for km, kmi in _keymaps:
         km.keymap_items.remove(kmi)
     _keymaps.clear()
