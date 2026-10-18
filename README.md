@@ -31,6 +31,14 @@ Tree Wind Paint finds the trunk and branches, works out which branch each leaf b
 
 Preview the wind in Blender to see how the painted channels move the tree. The preview uses UNIGINE's wind formula; your engine's shader determines the final animation.
 
+
+<p align="center">
+  <a href="https://youtu.be/d-5_-C4RA_E">
+    <img src="https://img.youtube.com/vi/d-5_-C4RA_E/hqdefault.jpg" alt="Watch the demo" width="600">
+  </a>
+</p>
+
+
 ## Installation
 
 1. Download the extension ZIP from [Releases](https://github.com/zloy-pingvin/tree_wind_paint/releases).
