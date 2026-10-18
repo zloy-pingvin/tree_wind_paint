@@ -34,8 +34,10 @@ Preview the wind in Blender to see how the painted channels move the tree. The p
 
 <p align="center">
   <a href="https://youtu.be/d-5_-C4RA_E">
-    <img src="https://img.youtube.com/vi/d-5_-C4RA_E/hqdefault.jpg" alt="Watch the demo" width="600">
+    <img src="https://github.com/zloy-pingvin/tree_wind_paint/raw/main/docs/images/hero.svg" alt="Quick overview" width="600">
   </a>
+  <br>
+  <a href="https://youtu.be/d-5_-C4RA_E">▶ Quick overview</a>
 </p>
 
 
