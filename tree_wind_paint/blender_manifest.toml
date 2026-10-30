@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "tree_wind_paint"
-version = "0.3.3"
+version = "0.3.4"
 name = "Tree Wind Paint"
 tagline = "Tree wind vertex colours painted from the tree's structure"
 maintainer = "zloy_pingvin"
